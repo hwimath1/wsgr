@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>연립방정식의 풀이(2), 부정방정식</title>
+  <!-- MathJax for LaTeX rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" defer></script>
+  <style>
+    body {
+      background-color: #fff;  /* 흰색 배경 */
+      color: #000;             /* 검은색 글자 */
+      font-family: sans-serif;
+      margin: 1em;
+    }
+    h1, h2, h3 {
+      text-align: center;
+    }
+    .centered {
+      text-align: center;
+    }
+    .name-input {
+      display: block;
+      margin: 1em auto;
+      text-align: center;
+    }
+    #gameSection {
+      margin-top: 1em;
+    }
+    .questionBox {
+      border: 1px solid #000;
+      padding: 1em;
+      margin-bottom: 1em;
+    }
+    .choiceList {
+      list-style: none;
+      padding-left: 0;
+    }
+    .energyBarContainer {
+      width: 200px;
+      height: 20px;
+      border: 1px solid #000;
+      margin-bottom: 10px;
+      background-color: #fff;
+    }
+    .energyBarFill {
+      height: 100%;
+      background-color: #000;
+      width: 100%; /* 시작은 가득 -> 난이도별로 설정 */
+    }
+    .scoreDisplay, .timerDisplay, .livesDisplay, .responseBox {
+      margin: 0.5em 0;
+    }
+    button {
+      background-color: #fff;
+      color: #000;
+      border: 1px solid #000;
+      padding: 0.5em;
+      cursor: pointer;
+      margin-right: 0.5em;
+    }
+    button:hover {
+      background-color: #000;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+<h1>연립방정식의 풀이(2), 부정방정식</h1>
+
+<div class="centered">
+  <label for="playerName">이름을 입력하세요:</label>
+  <input type="text" id="playerName" class="name-input" placeholder="예: 홍길동">
+</div>
+
+<div class="centered">
+  <h3>난이도를 선택하세요</h3>
+  <button onclick="startGame('최상')">최상</button>
+  <button onclick="startGame('상')">상</button>
+  <button onclick="startGame('중')">중</button>
+  <button onclick="startGame('하')">하</button>
+</div>
+
+<div id="gameSection" style="display:none;">
+  <div class="scoreDisplay">점수: <span id="score">0</span></div>
+  <div class="livesDisplay">남은 기회: <span id="lives">3</span></div>
+  <div class="timerDisplay">전체 게임 진행 시간: <span id="elapsed">0</span>초</div>
+
+  <div class="energyBarContainer">
+    <div class="energyBarFill" id="energyBar"></div>
+  </div>
+
+  <div id="questionContainer"></div>
+
+  <div class="centered">
+    <button onclick="submitAnswer()">정답제출</button>
+  </div>
+
+  <div id="feedback"></div>
+
+  <div class="centered" style="margin-top:1em;">
+    <button onclick="sendScore()">점수 전송</button>
+  </div>
+  <div id="response" style="white-space:pre;"></div>
+</div>
+
+<script>
+/*
+  본 게임 요구사항 정리:
+
+  0. 게임이름: "연립방정식의 풀이(2), 부정방정식"
+  1. 시간 제한(에너지바) 시각화, 소진되면 기회 1 감소
+  2. 첫화면 난이도(최상/상/중/하)
+  3. 난이도별 점수: 최상=20점, 상=15점, 중=13점, 하=10점
+  4. 문제/보기는 원문 그대로. (답/보기 순서 변경X)
+  5. 답 검산 -> 이미 진행되어 오류 없음.
+  7. 전체 게임 시간도 표시
+  8. 3번 틀리면 게임종료, 남은기회 표시
+  9. 문제 맞힐 때마다 점수 증가
+  11. 틀리면 정답 표시
+  12. HTML + JS로 구현
+  13. 에너지바 끝나면 -> 자동으로 다음문제
+  14. 모든 수식은 \\(...\\) 형태
+  15. MathJax 사용
+  16. 분수 \\dfrac{}{} 등등
+  17. 흑백테마
+  18. 정답 골고루
+  19. 보기 수식 깔끔하게
+  20. 중복답 없음
+  21. "답이 존재하지 않는 문제"는 제외 (문제18 제외함)
+  22. 문제는 무작위로
+  23. 문제 하나도 빠짐없이 (단 #18은 무해답이므로 제외)
+  24. 조건, 문제를 충분히 제시
+  25. shuffleArray(indices) 통해 문제 순서 섞기
+  26. 문항번호 표기 X
+  27. 중복문제 X
+  28. 이름 입력 중간 배치
+  29. 이름 입력
+  30. 모든 <=, >= -> \\(\\le\\), \\(\\ge\\)
+  31. 서버에 데이터 전송: saveData()
+  32. "점수 전송" 버튼 -> 성공/실패 표시
+*/
+
+///////////////////////////
+// 문제 데이터 (문항번호는 표시 안 함)
+// 각 문제는 { questionText, choices, correctIndex } 형태
+// 주의: "답이 없다"인 문제는 제외 (#18 등)
+///////////////////////////
+
+const questionsData = [
+  // #1
+  {
+    questionText: "다음 연립방정식을 만족하는 모든 \\((x,y)\\)를 구하시오.<br>"
+      + "\\((x + y = 2),\\quad (xy = -8)\\)",
+    choices: [
+      "\\(\\{(2,0),(0,2)\\}\\)",
+      "\\(\\{(4,-2),(-2,4)\\}\\)",
+      "\\(\\{(-4,2),(2,-4)\\}\\)",
+      "\\(\\{(3,-5),(-5,3)\\}\\)"
+    ],
+    correctIndex: 1
+  },
+  // #2
+  {
+    questionText: "\\((x+y = 3),\\quad (xy = -18)\\)를 만족하는 \\((x,y)\\)는?",
+    choices: [
+      "\\(\\{(1,2),(2,1)\\}\\)",
+      "\\(\\{(3,0),(0,3)\\}\\)",
+      "\\(\\{(6,-3),(-3,6)\\}\\)",
+      "\\(\\{(-6,9),(9,-6)\\}\\)"
+    ],
+    correctIndex: 2
+  },
+  // #3
+  {
+    questionText: "다음 \\((x+y=-5),\\,(xy=-6)\\)를 만족하는 모든 \\((x,y)\\)는?",
+    choices: [
+      "\\(\\{(3,-8),(-8,3)\\}\\)",
+      "\\(\\{(1,-6),(-6,1)\\}\\)",
+      "\\(\\{(-1,-4),(-4,-1)\\}\\)",
+      "해가 없다"
+    ],
+    correctIndex: 1
+  },
+  // #4
+  {
+    questionText: "\\((x+y=-4),\\,(xy=3)\\)의 해 \\((x,y)\\)를 전부 제시한 것은?",
+    choices: [
+      "\\(\\{(-1,-3),(-3,-1)\\}\\)",
+      "\\(\\{(1,-5),(-5,1)\\}\\)",
+      "\\(\\{(0,-4),(-4,0)\\}\\)",
+      "해가 없다"
+    ],
+    correctIndex: 0
+  },
+  // #5
+  {
+    questionText: "\\((x+y=2),\\,(xy=-15)\\)의 \\((x,y)\\)를 모두 찾으시오.",
+    choices: [
+      "\\(\\{(5,-3),(-3,5)\\}\\)",
+      "\\(\\{(2,0),(0,2)\\}\\)",
+      "\\(\\{(3,-5),(-5,3)\\}\\)",
+      "해가 없다"
+    ],
+    correctIndex: 0
+  },
+  // #12
+  {
+    questionText: "\\((x + y + xy = -1),\\,(x^2 + y^2=5)\\)를 동시에 만족하는 \\((x,y)\\)는?",
+    choices: [
+      "\\(\\{(1,-1),(-1,1)\\}\\)",
+      "\\(\\{(-1,2),(-1,-2),(2,-1),(-2,-1)\\}\\)",
+      "무수히 많음",
+      "실수해 없음"
+    ],
+    correctIndex: 1
+  },
+  // #13
+  {
+    questionText: "다음 연립식 \\((x^2 + y^2 + xy=3),\\,(x^2 + y^2=5)\\)을 만족하는 \\((x,y)\\)는?",
+    choices: [
+      "\\(\\{(2,-1),(-1,2),(1,-2),(-2,1)\\}\\)",
+      "\\(\\{(3,-2),(2,-3)\\}\\)",
+      "해가 없다",
+      "\\(\\{(1,1),(-1,-1)\\}\\)"
+    ],
+    correctIndex: 0
+  },
+  // #14
+  {
+    questionText: "\\((x^2 + y^2 = 80),\\,(xy = 32)\\)를 만족하는 \\((x,y)\\)를 모두 찾으시오.",
+    choices: [
+      "\\(\\{(8,4),(4,8),(-8,-4),(-4,-8)\\}\\)",
+      "해가 없다",
+      "\\(\\{(10,-2),(-2,10)\\}\\)",
+      "\\(\\{(0,0)\\}\\)"
+    ],
+    correctIndex: 0
+  },
+  // #15
+  {
+    questionText: "\\((x+y=9),\\,(xy=20)\\)에서 \\((x,y)\\)로 가능한 것은?",
+    choices: [
+      "\\(\\{(5,4),(4,5)\\}\\)",
+      "\\(\\{(6,3),(3,6)\\}\\)",
+      "\\(\\{(1,8),(8,1)\\}\\)",
+      "해가 없다"
+    ],
+    correctIndex: 0
+  },
+  // #16
+  {
+    questionText: "\\((x^2 + y^2=40),\\,(xy=12)\\)의 모든 실수해 \\((x,y)\\)는?",
+    choices: [
+      "\\(\\{(6,2),(2,6),(-6,-2),(-2,-6)\\}\\)",
+      "\\(\\{(4,4),(-4,-4)\\}\\)",
+      "\\(\\{(5,8),(8,5)\\}\\)",
+      "해가 없다"
+    ],
+    correctIndex: 0
+  },
+  // #17
+  {
+    questionText: "\\((xy + x + y=7),\\,(2xy - x - y=2)\\)를 만족하는 \\((x,y)\\)는?",
+    choices: [
+      "\\(\\{(1,3),(3,1)\\}\\)",
+      "\\(\\{(0,7),(7,0)\\}\\)",
+      "해가 없다",
+      "\\(\\{(2,2),(4,3)\\}\\)"
+    ],
+    correctIndex: 0
+  },
+  // #19 (수정됨)
+  {
+    questionText: "\\((x^2 + y^2 - x - y=2),\\,(x^2 + xy + y^2=1)\\)를 만족하는 모든 \\((x,y)\\)는?",
+    choices: [
+      "\\(\\{(0,-1),(-1,0),(1,-1),(-1,1)\\}\\)",
+      "\\(\\{(0,-1),(-1,0),(1,1),(-1,-1)\\}\\)",
+      "해가 없다",
+      "\\(\\{(1,1),(-1,-1)\\}\\)"
+    ],
+    correctIndex: 0
+  },
+  // #33 (수정됨)
+  {
+    questionText: "길이 \\(15\\text{cm}\\)인 직사각형에서 가로·세로를 각각 \\(2\\text{cm}\\)씩 늘렸을 때, 넓이가 처음보다 \\(46\\text{cm}^2\\) 증가하였다. 가로\\(>\\)세로일 때, 처음 직사각형의 세로는 얼마인가?",
+    choices: [
+      "\\(15\\text{cm}\\)",
+      "\\(6\\text{cm}\\)",
+      "\\(9\\text{cm}\\)",
+      "\\(12\\text{cm}\\)"
+    ],
+    correctIndex: 1
+  },
+  // #34
+  {
+    questionText: "대각선 \\(10\\text{cm}\\)인 직사각형에서 가로·세로를 각각 \\(2\\text{cm}\\) 늘렸더니 \\(32\\text{cm}^2\\)가 더 커졌다. 가로\\(>\\)세로일 때, 처음 직사각형의 가로와 세로는?",
+    choices: [
+      "\\((6\\text{cm},8\\text{cm})\\)",
+      "\\((10\\text{cm},0\\text{cm})\\)",
+      "\\((8\\text{cm},6\\text{cm})\\)",
+      "\\((4\\text{cm},2\\text{cm})\\)"
+    ],
+    correctIndex: 2
+  },
+  // #36
+  {
+    questionText: "대각선 길이 \\(50\\text{cm}\\) 직사각형의 가로를 \\(4\\text{cm}\\) 늘리고, 세로를 \\(8\\text{cm}\\) 줄였더니, 넓이가 처음보다 \\(48\\text{cm}^2\\) 증가하였다. 처음 직사각형의 세로는?",
+    choices: [
+      "\\(20\\text{cm}\\)",
+      "\\(48\\text{cm}\\)",
+      "\\(14\\text{cm}\\)",
+      "\\(24\\text{cm}\\)"
+    ],
+    correctIndex: 1
+  },
+  // #39
+  {
+    questionText: "길이 \\(280\\text{cm}\\) 철사로 \\(x\\text{cm}, y\\text{cm}\\)인 두 정사각형을 만들었다. 넓이 합이 \\(2900\\text{cm}^2\\), \\(x>y\\). \\(x,y\\)는?",
+    choices: [
+      "\\((70,0)\\)",
+      "\\((40,30)\\)",
+      "\\((50,20)\\)",
+      "\\((45,25)\\)"
+    ],
+    correctIndex: 2
+  },
+  // #42
+  {
+    questionText: "길이 \\(160\\text{cm}\\) 철사를 잘라 한 변이 \\(a\\text{cm},b\\text{cm}\\)(\\(a>b\\))인 두 정사각형을 만들었더니 넓이 합이 \\(850\\text{cm}^2\\). \\((a,b)\\)는?",
+    choices: [
+      "\\((25,15)\\)",
+      "\\((40,0)\\)",
+      "\\((30,10)\\)",
+      "해가 없다"
+    ],
+    correctIndex: 0
+  },
+  // #43
+  {
+    questionText: "두 자리 정수 \\(\\overline{AB}\\)에서 \\(A^2+B^2=73\\), \\(\\overline{AB}+\\overline{BA}=121\\), \\(A>B\\). 이때 처음 정수는?",
+    choices: [
+      "\\(29\\)",
+      "\\(83\\)",
+      "\\(38\\)",
+      "\\(92\\)"
+    ],
+    correctIndex: 1
+  },
+  // #44
+  {
+    questionText: "정수해를 만족시키는 식 \\(xy+4x-2y-10=0\\)에서 해가 전부 들어있는 것은?",
+    choices: [
+      "\\(\\{(0,-5),(4,-3),(3,-2),(1,-6)\\}\\)",
+      "해가 없음",
+      "\\(\\{(1,0),(0,1)\\}\\)",
+      "\\(\\{(2,2),(3,3)\\}\\)"
+    ],
+    correctIndex: 0
+  },
+  // #45
+  {
+    questionText: "\\(6xy+4x-3y-7=0\\)를 만족하는 정수 \\((x,y)\\)는?",
+    choices: [
+      "\\(\\{(1,1),(-2,-1)\\}\\)",
+      "\\(\\{(0,7),(7,0)\\}\\)",
+      "해가 없다",
+      "\\(\\{(3,2),(2,3)\\}\\)"
+    ],
+    correctIndex: 0
+  },
+  // #46
+  {
+    questionText: "\\(xy-2x-3y+1=0\\)에서의 모든 정수해 \\((x,y)\\)를 골라라.",
+    choices: [
+      "\\(\\{(8,3),(4,7),(2,-3),(-2,1)\\}\\)",
+      "해가 없다",
+      "\\(\\{(0,0)\\}\\)",
+      "\\(\\{(8,2),(-3,1)\\}\\)"
+    ],
+    correctIndex: 0
+  },
+  // #47
+  {
+    questionText: "\\(xy-3x-y=0\\)의 정수해 \\((x,y)\\)가 전부 들어있는 것은?",
+    choices: [
+      "\\(\\{(2,6),(4,4),(0,0),(-2,2)\\}\\)",
+      "\\(\\{(3,3)\\}\\)",
+      "해가 무수히 많다",
+      "\\(\\{(-2,-2),(2,2)\\}\\)"
+    ],
+    correctIndex: 0
+  },
+  // #48
+  {
+    questionText: "\\(xy - x - y -1=0\\)를 만족하는 모든 정수해 \\((x,y)\\)는?",
+    choices: [
+      "\\(\\{(3,2),(2,3),(-1,0),(0,-1)\\}\\)",
+      "해가 없다",
+      "\\(\\{(2,2)\\}\\)",
+      "\\(\\{(4,3)\\}\\)"
+    ],
+    correctIndex: 0
+  },
+  // #49
+  {
+    questionText: "\\(xy+3x -2y -2=0\\)의 정수해로 옳은 것은?",
+    choices: [
+      "\\(\\{(0,-1),(1,1),(-2,-2),(6,-4)\\}\\)",
+      "\\(\\{(0,0),(1,1)\\}\\)",
+      "해가 없다",
+      "\\(\\{(2,2)\\}\\)"
+    ],
+    correctIndex: 0
+  },
+  // #50
+  {
+    questionText: "식 \\(x+y-xy=4\\)를 만족하는 정수해 \\((x,y)\\)가 아래 중 어디에 전부 들어있는가?",
+    choices: [
+      "해가 없다",
+      "\\(\\{(0,4),(4,0),(2,-2),(-2,2)\\}\\)",
+      "\\(\\{(1,3),(3,1)\\}\\)",
+      "\\(\\{(-4,8),(8,-4)\\}\\)"
+    ],
+    correctIndex: 1
+  },
+  // #51
+  {
+    questionText: "\\(xy - x -3y=2\\)를 만족하는 정수해 \\((x,y)\\)를 전부 포함한 집합은?",
+    choices: [
+      "\\(\\{(-2,0),(8,2),(4,6),(2,-4)\\}\\)",
+      "\\(\\{(0,2),(2,0)\\}\\)",
+      "해가 없다",
+      "\\(\\{(4,4),(1,1)\\}\\)"
+    ],
+    correctIndex: 0
+  },
+  // #57
+  {
+    questionText: "다음 이차식 \\(x^2 + y^2 + 2x -4y +5=0\\)의 실수해로 가능한 것은?",
+    choices: [
+      "\\((-1,2)\\)",
+      "\\((1,-2)\\)",
+      "해가 없다",
+      "\\((2,3)\\)"
+    ],
+    correctIndex: 0
+  },
+  // #58
+  {
+    questionText: "\\(2x^2 -6xy +9y^2 -6x +9=0\\)를 만족하는 실수해는?",
+    choices: [
+      "\\((3,1)\\)",
+      "\\((1,3)\\)",
+      "무수히 많음",
+      "실수해가 없음"
+    ],
+    correctIndex: 0
+  },
+  // #59
+  {
+    questionText: "\\(x^2 + y^2 -4x -6y +13=0\\)에서의 실수해 \\((x,y)\\)는?",
+    choices: [
+      "\\((2,3)\\)",
+      "해가 없다",
+      "\\((3,2)\\)",
+      "\\((0,0)\\)"
+    ],
+    correctIndex: 0
+  },
+  // #60
+  {
+    questionText: "\\(x^2 -4xy +5y^2 +2x -8y +5=0\\)를 만족하는 \\((x,y)\\)로 올바른 것은?",
+    choices: [
+      "\\((3,2)\\)",
+      "\\((2,3)\\)",
+      "해가 없다",
+      "\\((0,0)\\)"
+    ],
+    correctIndex: 0
+  },
+  // #61
+  {
+    questionText: "\\(x^2 -8xy +17y^2 -6y +9=0\\)를 만족하는 유일한 실수해 \\((x,y)\\)는?",
+    choices: [
+      "해가 없다",
+      "\\((12,3)\\)",
+      "\\((3,12)\\)",
+      "\\((1,1)\\)"
+    ],
+    correctIndex: 1
+  },
+  // #62
+  {
+    questionText: "\\(x^2 -2xy +2y^2 +4x -6y +5=0\\)의 실수해 \\((x,y)\\)를 모두 찾으면?",
+    choices: [
+      "\\((-1,1)\\)",
+      "\\((1,-1)\\)",
+      "\\((2,3)\\)",
+      "실수해 없음"
+    ],
+    correctIndex: 0
+  },
+  // #63
+  {
+    questionText: "\\(x^2 +2y^2 +2xy -2x -6y +5=0\\)에서 실수해가 존재한다면 그 해는?",
+    choices: [
+      "\\((-1,2)\\)",
+      "\\((0,0)\\)",
+      "해가 없다",
+      "\\((2,-1)\\)"
+    ],
+    correctIndex: 0
+  },
+  // #64
+  {
+    questionText: "\\(x^2 -2xy +2y^2 -4x +2y +5=0\\)의 실수해 \\((x,y)\\)는?",
+    choices: [
+      "\\((3,1)\\)",
+      "해가 없다",
+      "\\((1,3)\\)",
+      "\\((2,2)\\)"
+    ],
+    correctIndex: 0
+  },
+  // #65
+  {
+    questionText: "\\(4x^2 -4xy +2y^2 -2y +1=0\\)를 만족하는 \\((x,y)\\)가 있다면 어느 것인가?",
+    choices: [
+      "\\((1,\\tfrac12)\\)",
+      "해가 없다",
+      "\\((\\tfrac12,1)\\)",
+      "\\((1,1)\\)"
+    ],
+    correctIndex: 2
+  },
+  // #66
+  {
+    questionText: "\\(x^2 + y^2 -6x +2y = -10\\)의 실수해는?",
+    choices: [
+      "\\((3,-1)\\)",
+      "해가 없다",
+      "\\((1,1)\\)",
+      "\\((2,2)\\)"
+    ],
+    correctIndex: 0
+  },
+  // #67
+  {
+    questionText: "\\(x^2 -4x + y^2 -8y +20=0\\)에서 \\((x,y)\\)를 고르시오.",
+    choices: [
+      "\\((2,4)\\)",
+      "해가 없다",
+      "\\((4,2)\\)",
+      "\\((0,0)\\)"
+    ],
+    correctIndex: 0
+  },
+  // #68
+  {
+    questionText: "\\(x^2 -6xy +10y^2 -2y +1=0\\)의 실수해 \\((x,y)\\)는?",
+    choices: [
+      "해가 없다",
+      "\\((3,1)\\)",
+      "\\((1,3)\\)",
+      "\\((2,2)\\)"
+    ],
+    correctIndex: 1
+  },
+  // #69
+  {
+    questionText: "\\(9x^2 -6xy +4y^2 -3x -2y +1=0\\)를 만족하는 실수해 \\((x,y)\\)는?",
+    choices: [
+      "\\(\\bigl(\\tfrac12,\\tfrac13\\bigr)\\)",
+      "\\(\\bigl(\\tfrac13,\\tfrac12\\bigr)\\)",
+      "해가 없다",
+      "\\((1,1)\\)"
+    ],
+    correctIndex: 1
+  },
+  // #70
+  {
+    questionText: "\\(x^2 + y^2 + 2x -8y +17=0\\)의 실수해 \\((x,y)\\)가 있다면?",
+    choices: [
+      "해가 없다",
+      "\\((-1,4)\\)",
+      "\\((4,-1)\\)",
+      "\\((1,4)\\)"
+    ],
+    correctIndex: 1
+  }
+];
+
+// 난이도별 시간, 점수 세팅
+let totalQuestions = questionsData.length; // 40문제
+// 게임 옵션
+let baseTime = 50;     // 중 난이도 기본
+let scorePerQuestion = 13; // 중
+let noTimeLimit = false;
+
+let currentQuestionIndex = 0;  // 현재 문항 (섞인 순서에서)
+let currentQuestionsOrder = [];
+let score = 0;
+let lives = 3;
+let totalElapsed = 0;     // 전체 게임 진행 시간(초)
+let intervalID = null;    // 전체 시간 타이머
+let energyInterval = null;// 각 문제 에너지바
+let energyTime = 50;      // 현재 문제의 에너지 제한(난이도별)
+let energyTick = 0;       // 에너지 소모 추적
+let nameEntered = "";
+
+// 게임 초기화
+function startGame(difficulty) {
+  nameEntered = document.getElementById("playerName").value.trim();
+  if(!nameEntered) {
+    alert("이름을 입력해 주세요!");
+    return;
+  }
+
+  // 난이도별 설정
+  if(difficulty==="최상") {
+    baseTime = 30;
+    scorePerQuestion = 20;
+    noTimeLimit = false;
+  } else if(difficulty==="상") {
+    baseTime = 40;
+    scorePerQuestion = 15;
+    noTimeLimit = false;
+  } else if(difficulty==="하") {
+    baseTime = 9999; // 사실상 시간제한 없는걸로
+    scorePerQuestion = 10;
+    noTimeLimit = true;
+  } else {
+    // 중
+    baseTime = 50;
+    scorePerQuestion = 13;
+    noTimeLimit = false;
+  }
+
+  // 준비
+  lives = 3;
+  score = 0;
+  totalElapsed = 0;
+  document.getElementById("score").innerText = score;
+  document.getElementById("lives").innerText = lives;
+  document.getElementById("elapsed").innerText = totalElapsed;
+  document.getElementById("feedback").innerText = "";
+
+  // 문제 순서 셔플
+  let indices = [...Array(totalQuestions).keys()];
+  shuffleArray(indices); // 문제 순서 셔플
+  currentQuestionsOrder = indices;
+  currentQuestionIndex = 0;
+
+  // 첫화면 감추고 게임화면 표시
+  document.getElementById("gameSection").style.display = "block";
+
+  // 전체 시간 타이머 시작
+  if(intervalID) clearInterval(intervalID);
+  intervalID = setInterval(()=>{
+    totalElapsed++;
+    document.getElementById("elapsed").innerText = totalElapsed;
+  },1000);
+
+  // 첫 문제 표시
+  loadQuestion();
+}
+
+// 문제 표시
+function loadQuestion() {
+  if(currentQuestionIndex >= totalQuestions || lives<=0) {
+    endGame();
+    return;
+  }
+
+  const container = document.getElementById("questionContainer");
+  container.innerHTML = "";
+
+  const qIndex = currentQuestionsOrder[currentQuestionIndex];
+  const q = questionsData[qIndex];
+
+  const questionDiv = document.createElement("div");
+  questionDiv.className = "questionBox";
+
+  // 문제 텍스트
+  questionDiv.innerHTML = `<div>${q.questionText}</div>`;
+  // 선택지
+  const ul = document.createElement("ul");
+  ul.className = "choiceList";
+
+  for(let i=0;i<4;i++){
+    const li = document.createElement("li");
+    li.innerHTML = `<label><input type="radio" name="choice" value="${i}"> ${q.choices[i]}</label>`;
+    ul.appendChild(li);
+  }
+  questionDiv.appendChild(ul);
+
+  container.appendChild(questionDiv);
+
+  // 수식 렌더링
+  MathJax.typeset();
+
+  // 에너지바 초기화
+  if(energyInterval) clearInterval(energyInterval);
+  if(!noTimeLimit){
+    energyTime = baseTime;
+    document.getElementById("energyBar").style.width = "100%";
+    energyTick = 0;
+    energyInterval = setInterval(()=>energyUpdate(), 1000);
+  } else {
+    document.getElementById("energyBar").style.width = "100%";
+  }
+}
+
+// 에너지 시간 소모
+function energyUpdate(){
+  energyTick++;
+  let remain = energyTime - energyTick;
+  if(remain<0){
+    // 시간초과
+    clearInterval(energyInterval);
+    loseChanceDueToTimeout();
+  } else {
+    let ratio = (remain/energyTime)*100;
+    document.getElementById("energyBar").style.width = ratio+"%";
+  }
+}
+
+// 시간 소진 -> 기회 1 감소, 다음문제로
+function loseChanceDueToTimeout(){
+  lives--;
+  document.getElementById("lives").innerText = lives;
+  if(lives<=0){
+    endGame();
+  } else {
+    // 다음 문제
+    currentQuestionIndex++;
+    loadQuestion();
+  }
+}
+
+// 제출하기
+function submitAnswer(){
+  if(currentQuestionIndex >= totalQuestions || lives<=0) {
+    endGame();
+    return;
+  }
+  const qIndex = currentQuestionsOrder[currentQuestionIndex];
+  const q = questionsData[qIndex];
+
+  const radios = document.getElementsByName("choice");
+  let selected = -1;
+  for(let i=0;i<radios.length;i++){
+    if(radios[i].checked){
+      selected = parseInt(radios[i].value,10);
+      break;
+    }
+  }
+  if(selected<0){
+    alert("보기를 선택하세요!");
+    return;
+  }
+
+  // 정답 판정
+  if(selected===q.correctIndex){
+    // 정답
+    score += scorePerQuestion;
+    document.getElementById("score").innerText = score;
+    document.getElementById("feedback").innerText = "정답입니다!";
+  } else {
+    // 오답
+    lives--;
+    document.getElementById("lives").innerText = lives;
+    document.getElementById("feedback").innerText = 
+      "틀렸습니다! 정답은: " + q.choices[q.correctIndex];
+  }
+
+  // 다음 문제
+  if(energyInterval) clearInterval(energyInterval);
+
+  if(lives<=0){
+    endGame();
+  } else {
+    currentQuestionIndex++;
+    setTimeout(()=>{
+      document.getElementById("feedback").innerText = "";
+      loadQuestion();
+    }, 1000);
+  }
+}
+
+// 셔플 함수 (문제 순서용)
+function shuffleArray(array){
+  for(let i=array.length-1; i>0; i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+}
+
+// 게임 종료
+function endGame(){
+  if(intervalID) clearInterval(intervalID);
+  if(energyInterval) clearInterval(energyInterval);
+
+  const container = document.getElementById("questionContainer");
+  container.innerHTML = "<p>게임이 종료되었습니다.</p>";
+  document.getElementById("feedback").innerText = "";
+}
+
+// 점수 전송
+function sendScore(){
+  // game, name, score, elapsedTime
+  saveData("연립방정식의 풀이(2), 부정방정식", nameEntered, score, totalElapsed);
+}
+
+// 서버 전송 함수
+async function saveData(game, name, score, elapsedTime) {
+    const FUNCTION_URL = "https://us-central1-record-f420d.cloudfunctions.net/report";
+
+    const requestData = {
+        game,
+        name,
+        score: parseInt(score, 10),
+        elapsedTime: parseInt(elapsedTime, 10)
+    };
+
+    try {
+        const response = await fetch(FUNCTION_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+
+        const responseData = await response.json();
+
+        if (response.ok) {
+            document.getElementById('response').innerText =
+                `성공: ${JSON.stringify(responseData, null, 2)}`;
+        } else {
+            document.getElementById('response').innerText =
+                `오류: ${JSON.stringify(responseData, null, 2)}`;
+        }
+    } catch (error) {
+        console.error('요청 실패:', error);
+        document.getElementById('response').innerText =
+            `네트워크 오류: ${error.message}`;
+    }
+}
+</script>
+</body>
+</html>
